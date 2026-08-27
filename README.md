@@ -12,7 +12,7 @@ Export the lot as a PDF report.
 It only looks. SiteScope never attacks your site, submits data or changes anything, and nothing leaves your computer.
 
 Build it on Windows
-Install Python 3.10–3.14 from python.org/downloads/windows — choose Windows installer (64-bit), and tick "Add python.exe to PATH" on the first screen.
+Install Python 3.10–3.14 from python.org/downloads/windows, choose Windows installer (64-bit), and tick "Add python.exe to PATH" on the first screen.
 Double-click build\build.bat.
 
 Three to five minutes later you will have built dist\SiteScope.exe - a single file that will run on any Windows 10 or 11 machine with nothing else installed.
