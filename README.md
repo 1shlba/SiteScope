@@ -5,7 +5,7 @@ Sitescope is a packaged python application that can be easily installed on windo
 
 How it works
 Enter your website address and confirm you own it.
-SiteScope visits your pages the way a browser does, and examines what comes back — certificates, security settings, cookies, forms, and files that should not be public.
+SiteScope visits your pages the way a browser does, and examines what comes back: certificates, security settings, cookies, forms, and files that should not be public.
 You get a score out of 950 and a list of issues, most urgent first. Each one explains what it means, why it matters to your business, and how to fix it.
 Export the lot as a PDF report.
 
