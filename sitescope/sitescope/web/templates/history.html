@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stat-grid two">
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Total Scans Completed</span>
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M3 12h4l3 8 4-16 3 8h4"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="h-total">--</div>
+    <div class="stat-sub good" id="h-rate">&nbsp;</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Critical Issues Found</span>
+      <svg class="stat-icon danger" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M10.3 4.3L2.5 18a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 4.3a2 2 0 00-3.4 0z"/>
+        <path d="M12 9v4"/><path d="M12 17h.01"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="h-critical">--</div>
+    <div class="stat-sub" id="h-critical-sub">across all recorded scans</div>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">Recent Scan Execution Logs</div>
+    <span class="card-link" onclick="location.href='/new-scan'">Run a new scan</span>
+  </div>
+  <div class="table-wrap" id="history-host">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Target URL</th>
+          <th>Scan Date</th>
+          <th>Status</th>
+          <th class="right">Findings</th>
+          <th class="right">Score</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="5" class="muted">Loading scan history...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, el, clear, api, formatNumber } = SS;
+
+  const params = new URLSearchParams(location.search);
+  let search = params.get("search") || "";
+
+  async function load() {
+    try {
+      const data = await api("/api/scans?search=" + encodeURIComponent(search));
+
+      $("#h-total").textContent = formatNumber(data.total_completed);
+      $("#h-rate").textContent = `${data.success_rate}% success rate`;
+      $("#h-critical").textContent = formatNumber(data.critical_total);
+
+      const body = clear($("#history-body"));
+
+      if (!data.scans.length) {
+        body.appendChild(el("tr", {}, [
+          el("td", { colspan: "5" }, [
+            SS.emptyState(
+              search ? "No scans match that search" : "No scans recorded yet",
+              search ? "Try a different address or clear the search box."
+                     : "Run your first scan to start building a history of your website's security.",
+              search ? null : "Run a scan",
+              search ? null : () => (location.href = "/new-scan"),
+            ),
+          ]),
+        ]));
+        return;
+      }
+
+      for (const scan of data.scans) {
+        const row = el("tr", { class: "clickable" }, [
+          el("td", { class: "target", title: scan.target_url, text: scan.target_url }),
+          el("td", { text: scan.date_display }),
+          el("td", {}, [el("span", { class: `badge badge-${scan.badge}`, text: scan.badge })]),
+          el("td", {
+            class: `right count-cell ${scan.findings ? "some" : "zero"}`,
+            text: String(scan.findings),
+          }),
+          el("td", { class: "right", text: scan.status === "completed" ? `${scan.score}` : "-" }),
+        ]);
+        row.addEventListener("click", () => (location.href = `/scan/${scan.id}`));
+        body.appendChild(row);
+      }
+    } catch (err) {
+      SS.toast(err.message, "error");
+    }
+  }
+
+  const searchBox = $("#global-search");
+  searchBox.placeholder = "Search scan history...";
+  searchBox.value = search;
+
+  let debounce;
+  searchBox.addEventListener("input", (event) => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => { search = event.target.value.trim(); load(); }, 260);
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

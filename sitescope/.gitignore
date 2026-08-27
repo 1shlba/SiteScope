@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build output
+dist/
+build/temp/
+*.spec.bak
+SiteScope.zip
+
+# Local data (never commit scan results - they describe real vulnerabilities)
+*.db
+*.sqlite
+sitescope-data/
+reports/
+settings.json
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

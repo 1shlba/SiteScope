@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="reports-grid">
+
+  <div class="dash-col">
+    <section class="card">
+      <div class="card-head"><div class="card-title">Scan behaviour</div></div>
+
+      <div class="field">
+        <label class="field-label" for="max-pages">Pages to examine in a Full Scan</label>
+        <input class="input narrow" id="max-pages" type="number" min="1" max="500">
+        <div class="field-hint">More pages means a more thorough assessment and a longer scan. 25 suits most small business sites.</div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="rps">Requests per second</label>
+        <input class="input narrow" id="rps" type="number" min="0.5" max="50" step="0.5">
+        <div class="field-hint">Keeps SiteScope polite so a scan never slows your live website down. Leave at 5 unless your host asks otherwise.</div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="timeout">Request timeout (seconds)</label>
+        <input class="input narrow" id="timeout" type="number" min="1" max="120">
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <div class="toggle-name">Respect robots.txt</div>
+          <div class="toggle-desc">Skip pages your site asks crawlers not to visit. Turn off only for a site you own outright.</div>
+        </div>
+        <label class="checkbox"><input type="checkbox" id="respect-robots"><span></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <div class="toggle-name">Follow redirects</div>
+          <div class="toggle-desc">Assess the page a visitor actually lands on.</div>
+        </div>
+        <label class="checkbox"><input type="checkbox" id="follow-redirects"><span></span></label>
+      </div>
+
+      <button class="btn btn-primary mt-16" id="save-btn">Save settings</button>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div class="card-title">Report details</div></div>
+      <div class="field">
+        <label class="field-label" for="business-name">Business name on reports</label>
+        <input class="input" id="business-name" type="text" placeholder="Your Business Pty Ltd">
+        <div class="field-hint">Appears on the cover of every PDF report you generate.</div>
+      </div>
+      <button class="btn btn-primary" id="save-report-btn">Save</button>
+    </section>
+  </div>
+
+  <div class="dash-col">
+    <section class="card">
+      <div class="card-head"><div class="card-title">Sample data</div></div>
+      <p class="fb-text" id="demo-state">Checking...</p>
+      <div class="row-gap mt-16">
+        <button class="btn btn-danger" id="clear-demo-btn">Remove sample data</button>
+        <button class="btn" id="load-demo-btn">Load sample data</button>
+      </div>
+      <div class="field-hint mt-16">
+        SiteScope installs with a set of example scans so the dashboard is meaningful before
+        your first real scan. All sample entries use reserved example.com addresses and are
+        clearly separated from your own results - removing them never touches a real scan.
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div class="card-title">Your data</div></div>
+      <div class="detail-box">
+        <div class="kv-row">
+          <span class="k">Database and reports</span>
+          <span class="v" id="data-dir">-</span>
+        </div>
+        <div class="kv-row">
+          <span class="k">Scan engine</span>
+          <span class="v" id="engine-name">-</span>
+        </div>
+        <div class="kv-row">
+          <span class="k">Version</span>
+          <span class="v" id="version">-</span>
+        </div>
+      </div>
+      <div class="field-hint mt-16">
+        Everything SiteScope records stays on this computer. Nothing is uploaded, and no
+        account or internet connection is required beyond reaching the website you scan.
+      </div>
+      <button class="btn btn-danger mt-16" id="clear-all-btn">Delete all scans and reports</button>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div class="card-title">Responsible use</div></div>
+      <div class="fb-text">
+        SiteScope performs a passive assessment: it requests pages the way a browser does and
+        analyses the responses. It does not attempt to exploit weaknesses, submit data or
+        access accounts. Even so, only scan a site you own or have written permission to test.
+      </div>
+      <div class="fb-text mt-16">
+        A clear result means no problems were found in the areas SiteScope checks. It is not a
+        guarantee that a website is secure. Sites handling payments or sensitive personal
+        information should also be assessed by a qualified security professional.
+      </div>
+    </section>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, api, toast } = SS;
+
+  async function load() {
+    try {
+      const settings = await api("/api/settings");
+
+      $("#max-pages").value = settings.max_pages;
+      $("#rps").value = settings.requests_per_second;
+      $("#timeout").value = settings.request_timeout;
+      $("#respect-robots").checked = !!settings.respect_robots;
+      $("#follow-redirects").checked = !!settings.follow_redirects;
+      $("#business-name").value = settings.business_name || "";
+
+      $("#data-dir").textContent = settings.data_dir;
+      $("#engine-name").textContent = settings.engine;
+      $("#version").textContent = settings.version;
+
+      $("#demo-state").textContent = settings.has_demo_data
+        ? "Sample data is currently loaded and included in your dashboard figures."
+        : "No sample data is loaded. Everything shown comes from your own scans.";
+      $("#clear-demo-btn").disabled = !settings.has_demo_data;
+      $("#load-demo-btn").disabled = !!settings.has_demo_data;
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  $("#save-btn").addEventListener("click", async () => {
+    try {
+      await api("/api/settings", {
+        method: "POST",
+        body: {
+          max_pages: Number($("#max-pages").value),
+          requests_per_second: Number($("#rps").value),
+          request_timeout: Number($("#timeout").value),
+          respect_robots: $("#respect-robots").checked,
+          follow_redirects: $("#follow-redirects").checked,
+        },
+      });
+      toast("Settings saved.", "success");
+      load();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("#save-report-btn").addEventListener("click", async () => {
+    try {
+      await api("/api/settings", { method: "POST", body: { business_name: $("#business-name").value } });
+      toast("Saved. New reports will show this name.", "success");
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("#clear-demo-btn").addEventListener("click", async () => {
+    if (!confirm("Remove all sample data? Your own scans and reports are kept.")) return;
+    try {
+      const response = await api("/api/demo/clear", { method: "POST" });
+      toast(`Removed ${response.removed} sample scan(s).`, "success");
+      load();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("#load-demo-btn").addEventListener("click", async () => {
+    try {
+      await api("/api/demo/load", { method: "POST" });
+      toast("Sample data loaded.", "success");
+      load();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("#clear-all-btn").addEventListener("click", async () => {
+    if (!confirm("Delete every scan and report on this computer? This cannot be undone.")) return;
+    try {
+      await api("/api/data/clear", { method: "POST" });
+      toast("All data deleted.", "success");
+      load();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("#global-search").placeholder = "Not available here";
+  $("#global-search").disabled = true;
+
+  load();
+})();
+</script>
+{% endblock %}

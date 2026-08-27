@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page_title }} - SiteScope</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236c5ce7'/><circle cx='14' cy='14' r='6' fill='none' stroke='white' stroke-width='2.4'/><path d='M18.5 18.5L24 24' stroke='white' stroke-width='2.4' stroke-linecap='round'/></svg>">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6"/>
+          <path d="M15 15l5 5"/>
+        </svg>
+      </div>
+      <div class="brand-name">SiteScope</div>
+    </div>
+
+    <nav class="nav">
+      {% set icons = {
+        'dashboard': '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+        'new_scan':  '<circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/>',
+        'history':   '<path d="M3 12h4l3 8 4-16 3 8h4"/>',
+        'reports':   '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
+        'settings':  '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 003.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H8a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V8a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/>'
+      } %}
+      {% set routes = {
+        'dashboard': url_for('dashboard'),
+        'new_scan':  url_for('new_scan'),
+        'history':   url_for('history'),
+        'reports':   url_for('reports'),
+        'settings':  url_for('settings')
+      } %}
+      {% for key, label, _ in nav_items %}
+      <a class="nav-item {{ 'active' if page == key }}" href="{{ routes[key] }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="round" stroke-linejoin="round">{{ icons[key] | safe }}</svg>
+        <span>{{ label }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="status-pill">
+        <div class="row">
+          <span class="dot idle" id="engine-dot"></span>
+          <span class="label" id="engine-label">Engine Ready</span>
+        </div>
+        <div class="version">v{{ app_version }}-stable</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="page-title">{{ page_title }}</div>
+      <div class="topbar-right">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="search" id="global-search"
+                 placeholder="{{ search_placeholder | default('Search targets...') }}"
+                 autocomplete="off">
+        </div>
+        <button class="icon-btn" title="Notifications" id="notify-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+            <path d="M13.7 21a2 2 0 01-3.4 0"/>
+          </svg>
+        </button>
+        <div class="user">
+          <div class="avatar"></div>
+          <div class="user-name">UTS_Capstone</div>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<div class="toast-host"></div>
+
+<script src="{{ url_for('static', filename='js/core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+/* Reflect live scan state in the sidebar status pill on every screen. */
+(function () {
+  const dot = document.getElementById("engine-dot");
+  const label = document.getElementById("engine-label");
+  if (!dot || !label) return;
+
+  SS.poll(async () => {
+    try {
+      const status = await SS.api("/api/scan/status");
+      if (status.active) {
+        dot.className = "dot pulsing";
+        label.textContent = "Scanning Active";
+      } else {
+        dot.className = "dot idle";
+        label.textContent = "Engine Ready";
+      }
+    } catch (err) { /* the window may be closing */ }
+  }, 2500);
+
+  document.getElementById("notify-btn")?.addEventListener("click", () => {
+    SS.toast("Notifications are not enabled in this build.");
+  });
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

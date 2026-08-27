@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card" style="margin-bottom:14px">
+  <div class="score-hero">
+    <div class="ring-wrap">
+      <div id="score-ring"></div>
+      <div class="ring-center">
+        <div class="ring-score" id="ring-score">--</div>
+        <div class="ring-max">of {{ max_score }}</div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:240px">
+      <div class="spread" style="align-items:flex-start">
+        <div>
+          <div class="card-title" id="target-name">{{ target_url }}</div>
+          <div class="muted" style="font-size:11.5px;margin-top:3px" id="scan-meta">Loading...</div>
+        </div>
+        <div class="row-gap">
+          <button class="btn btn-primary btn-sm" id="report-btn">Generate PDF report</button>
+          <button class="btn btn-sm" id="rescan-btn">Re-scan</button>
+        </div>
+      </div>
+      <div class="summary-text mt-16" id="summary-text"></div>
+      <div class="row-gap mt-16" id="sev-summary"></div>
+    </div>
+  </div>
+</section>
+
+<div class="spread" style="margin-bottom:10px">
+  <div class="section-title mb-0">Findings, most urgent first</div>
+  <label class="checkbox" style="font-size:11px">
+    <input type="checkbox" id="hide-resolved">
+    <span>Hide fixed items</span>
+  </label>
+</div>
+
+<div id="findings-host"><div class="muted">Loading findings...</div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, el, clear, api, escapeHtml, SEVERITY } = SS;
+  const SCAN_ID = {{ scan_id }};
+  const MAX_SCORE = {{ max_score }};
+
+  let data = null;
+  let hideResolved = false;
+
+  function scoreColour(score) {
+    const fraction = score / MAX_SCORE;
+    if (fraction >= 0.85) return "#22c55e";
+    if (fraction >= 0.65) return "#eab308";
+    if (fraction >= 0.45) return "#f97316";
+    return "#ef4444";
+  }
+
+  function renderHeader() {
+    const colour = scoreColour(data.score);
+    $("#ring-score").textContent = data.score;
+    $("#ring-score").style.color = colour;
+    Charts.scoreRing($("#score-ring"), { score: data.score, max: MAX_SCORE, colour });
+
+    $("#target-name").textContent = data.target_url;
+    $("#scan-meta").textContent =
+      `${data.date_display} - ${data.scan_type} scan - ${data.pages_scanned} page(s) examined - ` +
+      `${data.requests_sent} requests - grade ${data.grade}`;
+    $("#summary-text").textContent = data.summary;
+
+    const host = clear($("#sev-summary"));
+    for (const key of ["critical", "high", "medium", "low", "info"]) {
+      const count = data.counts[key] || 0;
+      if (!count) continue;
+      host.appendChild(el("span", {
+        class: "tag",
+        style: `background:${SEVERITY[key].colour}22;color:${SEVERITY[key].colour}`,
+        text: `${count} ${SEVERITY[key].label}`,
+      }));
+    }
+    if (!host.children.length) {
+      host.appendChild(el("span", { class: "tag", style: "background:#22c55e22;color:#22c55e",
+                                    text: "No issues found" }));
+    }
+  }
+
+  function renderFindings() {
+    const host = clear($("#findings-host"));
+    const findings = data.findings.filter((f) => !(hideResolved && f.resolved));
+
+    if (!findings.length) {
+      host.appendChild(SS.emptyState(
+        data.findings.length ? "Everything here is marked as fixed" : "No issues were found",
+        data.findings.length
+          ? "Untick 'Hide fixed items' to see them again."
+          : "SiteScope did not detect any problems in the areas it checks. Re-scan after any significant change to your website.",
+      ));
+      return;
+    }
+
+    findings.forEach((finding, index) => {
+      const meta = SEVERITY[finding.severity];
+
+      const head = el("div", { class: "finding-head" }, [
+        el("span", { class: "tag", style: `background:${meta.colour}22;color:${meta.colour}`,
+                     text: meta.label }),
+        el("div", { class: "finding-title", text: finding.title }),
+        el("div", { class: "finding-meta" }, [
+          el("span", { text: `CVSS ${finding.cvss}` }),
+          el("span", { text: finding.difficulty }),
+        ]),
+      ]);
+
+      const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      chevron.setAttribute("class", "chev");
+      chevron.setAttribute("viewBox", "0 0 24 24");
+      chevron.setAttribute("fill", "none");
+      chevron.setAttribute("stroke-width", "2");
+      chevron.setAttribute("stroke-linecap", "round");
+      chevron.innerHTML = '<path d="M9 6l6 6-6 6"/>';
+      head.appendChild(chevron);
+
+      const steps = el("ol", { class: "fix-list" });
+      for (const step of finding.how_to_fix) {
+        steps.appendChild(el("li", { text: step }));
+      }
+
+      const body = el("div", { class: "finding-body" }, [
+        el("div", { class: "fb-section" }, [
+          el("div", { class: "fb-label", text: "What it means" }),
+          el("div", { class: "fb-text", text: finding.what_it_means }),
+        ]),
+        el("div", { class: "fb-section" }, [
+          el("div", { class: "fb-label", text: "Why it matters to your business" }),
+          el("div", { class: "fb-text", text: finding.why_it_matters }),
+        ]),
+        el("div", { class: "fb-section" }, [
+          el("div", { class: "fb-label", text: "How to fix it" }), steps,
+        ]),
+      ]);
+
+      if (finding.evidence) {
+        body.appendChild(el("div", { class: "fb-section" }, [
+          el("div", { class: "fb-label", text: "What the scanner saw" }),
+          el("div", { class: "evidence", text: finding.evidence }),
+        ]));
+      }
+
+      const tags = el("div", { class: "row-gap", style: "margin-top:12px" }, [
+        el("span", { class: "tag", text: finding.owasp }),
+        el("span", { class: "tag", text: `Effort: ${finding.difficulty}` }),
+      ]);
+      if (finding.needs_professional) {
+        tags.appendChild(el("span", { class: "tag pro", text: "Professional help recommended" }));
+      }
+      if (finding.confidence !== "High") {
+        tags.appendChild(el("span", { class: "tag", text: `Confidence: ${finding.confidence}` }));
+      }
+      body.appendChild(tags);
+
+      const actions = el("div", { class: "finding-actions" });
+      const toggle = el("label", { class: "checkbox" }, [
+        el("input", { type: "checkbox", ...(finding.resolved ? { checked: "checked" } : {}) }),
+        el("span", { text: "I have fixed this" }),
+      ]);
+      toggle.querySelector("input").addEventListener("change", async (event) => {
+        event.stopPropagation();
+        try {
+          const response = await api(`/api/scans/${SCAN_ID}/findings/resolve`, {
+            method: "POST",
+            body: { check_id: finding.check_id, url: finding.url, resolved: event.target.checked },
+          });
+          finding.resolved = event.target.checked;
+          if (response.score !== undefined) {
+            data.score = response.score;
+            data.grade = response.grade;
+            data.counts = response.counts;
+            renderHeader();
+          }
+          renderFindings();
+        } catch (err) { SS.toast(err.message, "error"); }
+      });
+      actions.appendChild(toggle);
+
+      if (finding.url) {
+        actions.appendChild(el("span", { class: "muted", style: "font-size:11px",
+                                         text: `Observed at: ${finding.url}` }));
+      }
+      if (finding.reference) {
+        actions.appendChild(el("a", { class: "ref-link", href: finding.reference,
+                                      target: "_blank", rel: "noopener noreferrer",
+                                      text: "Read more" }));
+      }
+      body.appendChild(actions);
+
+      const card = el("div", {
+        class: `finding sev-${finding.severity} ${finding.resolved ? "resolved" : ""} ${index === 0 && !finding.resolved ? "open" : ""}`,
+      }, [head, body]);
+
+      head.addEventListener("click", (event) => {
+        if (event.target.closest("label, a, input")) return;
+        card.classList.toggle("open");
+      });
+
+      host.appendChild(card);
+    });
+  }
+
+  $("#hide-resolved").addEventListener("change", (event) => {
+    hideResolved = event.target.checked;
+    renderFindings();
+  });
+
+  $("#report-btn").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "Generating...";
+    try {
+      const response = await api(`/api/scans/${SCAN_ID}/report`, { method: "POST" });
+      SS.toast("PDF report created.", "success");
+      window.location = response.download_url;
+    } catch (err) {
+      SS.toast(err.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "Generate PDF report";
+    }
+  });
+
+  $("#rescan-btn").addEventListener("click", () => {
+    sessionStorage.setItem("sitescope:prefill", data.target_url);
+    location.href = "/new-scan";
+  });
+
+  (async () => {
+    try {
+      data = await api(`/api/scans/${SCAN_ID}`);
+      renderHeader();
+      renderFindings();
+    } catch (err) {
+      SS.toast(err.message, "error");
+      $("#findings-host").innerHTML = `<div class="notice notice-danger">${escapeHtml(err.message)}</div>`;
+    }
+  })();
+})();
+</script>
+{% endblock %}

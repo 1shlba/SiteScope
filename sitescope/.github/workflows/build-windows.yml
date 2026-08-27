@@ -1,0 +1,127 @@
+name: Build Windows executable
+
+# Produces a downloadable SiteScope.exe and SiteScope-Setup.exe without
+# needing a Windows machine of your own.
+#
+#   * Every push and pull request -> builds and uploads the exe as an artifact
+#     (Actions tab -> the run -> Artifacts).
+#   * Pushing a tag like v1.0.0   -> also attaches both files to a GitHub Release.
+
+on:
+  push:
+    branches: [main, master, develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Tests (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run the test suite
+        run: pytest -q
+
+  build:
+    name: Build SiteScope.exe
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build the executable
+        run: pyinstaller build/sitescope.spec --noconfirm --clean --distpath dist --workpath build/temp
+
+      - name: Verify the executable starts
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/SiteScope.exe)) { throw "SiteScope.exe was not produced" }
+          $output = & ./dist/SiteScope.exe --version 2>&1 | Out-String
+          Write-Host "Version output: $output"
+          if ($output -notmatch "SiteScope") { throw "The executable did not report its version" }
+          $size = (Get-Item dist/SiteScope.exe).Length / 1MB
+          Write-Host ("Executable size: {0:N1} MB" -f $size)
+
+      - name: Smoke test the local service
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath ./dist/SiteScope.exe `
+                                -ArgumentList "--no-window","--port","8899" -PassThru
+          try {
+            $ready = $false
+            foreach ($attempt in 1..20) {
+              Start-Sleep -Seconds 2
+              try {
+                $response = Invoke-RestMethod -Uri "http://127.0.0.1:8899/api/health" -TimeoutSec 3
+                if ($response.status -eq "ok") { $ready = $true; break }
+              } catch { }
+            }
+            if (-not $ready) { throw "The service did not become healthy within 40 seconds" }
+            Write-Host "Health check passed."
+
+            $dashboard = Invoke-RestMethod -Uri "http://127.0.0.1:8899/api/dashboard" -TimeoutSec 5
+            Write-Host "Dashboard reports $($dashboard.total_scans) scans."
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          # Inno Setup ships with the windows-latest runner image.
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc /Q build/installer.iss
+            if ($LASTEXITCODE -ne 0) { throw "The installer build failed" }
+            Write-Host "Installer built."
+          } else {
+            choco install innosetup --no-progress -y
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q build/installer.iss
+          }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SiteScope-windows
+          path: |
+            dist/SiteScope.exe
+            dist/SiteScope-Setup.exe
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/SiteScope.exe
+            dist/SiteScope-Setup.exe
+          generate_release_notes: true

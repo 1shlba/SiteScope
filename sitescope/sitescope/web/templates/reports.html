@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stat-grid">
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Reports Generated</span>
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="r-total">--</div>
+    <div class="stat-sub good" id="r-month">&nbsp;</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Scans Completed</span>
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M3 12h4l3 8 4-16 3 8h4"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="r-scans">--</div>
+    <div class="stat-sub" id="r-rate">&nbsp;</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Critical Issues Found</span>
+      <svg class="stat-icon danger" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M10.3 4.3L2.5 18a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 4.3a2 2 0 00-3.4 0z"/>
+        <path d="M12 9v4"/><path d="M12 17h.01"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="r-critical">--</div>
+    <div class="stat-sub" id="r-critical-sub">currently unresolved</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Latest Security Score</span>
+      <svg class="stat-icon good" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="12" cy="8" r="5"/><path d="M8.2 12.5L7 22l5-3 5 3-1.2-9.5"/>
+      </svg>
+    </div>
+    <div class="stat-value good" id="r-score">--<span class="suffix"> / {{ max_score }}</span></div>
+    <div class="stat-sub" id="r-grade">&nbsp;</div>
+  </div>
+</div>
+
+<div class="reports-grid">
+  <section class="card">
+    <div class="card-head">
+      <div class="card-title">Recent Reports</div>
+      <span class="card-link" onclick="location.href='/history'">View scans</span>
+    </div>
+    <div id="report-list"><div class="muted">Loading reports...</div></div>
+  </section>
+
+  <section class="card" id="detail-card">
+    <div class="card-head">
+      <div class="card-title">Report Details</div>
+      <span class="badge badge-SAFE" id="detail-status" style="display:none">READY</span>
+    </div>
+    <div id="detail-body">
+      <div class="empty" style="padding:30px 10px">
+        <p>Select a report on the left to see its summary, or generate a new one from any completed scan.</p>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, el, clear, api, formatNumber, escapeHtml } = SS;
+
+  let reports = [];
+  let selectedId = null;
+  let search = "";
+
+  function renderList() {
+    const host = clear($("#report-list"));
+
+    if (!reports.length) {
+      host.appendChild(SS.emptyState(
+        search ? "No reports match that search" : "No reports yet",
+        search ? "Try a different title or website address."
+               : "Open any completed scan and choose 'Generate PDF report' to create one.",
+        search ? null : "View scans",
+        search ? null : () => (location.href = "/history"),
+      ));
+      return;
+    }
+
+    for (const report of reports) {
+      const node = el("div", {
+        class: `report-item ${report.id === selectedId ? "selected" : ""}`,
+      }, [
+        el("div", { class: "ri-main" }, [
+          el("div", { class: "ri-title", text: report.title }),
+          el("div", { class: "ri-meta", text: report.display_name }),
+        ]),
+        el("div", { class: "ri-date", text: report.date_display }),
+        el("span", {
+          class: `badge badge-${report.has_file ? "SAFE" : "MEDIUM"}`,
+          text: report.has_file ? "READY" : "MISSING",
+        }),
+      ]);
+      node.addEventListener("click", () => { selectedId = report.id; renderList(); renderDetail(); });
+      host.appendChild(node);
+    }
+  }
+
+  function renderDetail() {
+    const report = reports.find((item) => item.id === selectedId);
+    const host = clear($("#detail-body"));
+    const statusBadge = $("#detail-status");
+
+    if (!report) {
+      statusBadge.style.display = "none";
+      host.innerHTML = '<div class="empty" style="padding:30px 10px"><p>Select a report on the left to see its summary.</p></div>';
+      return;
+    }
+
+    statusBadge.style.display = "";
+    statusBadge.className = `badge badge-${report.has_file ? "SAFE" : "MEDIUM"}`;
+    statusBadge.textContent = report.has_file ? "READY" : "FILE MISSING";
+
+    host.appendChild(el("div", { class: "detail-block" }, [
+      el("div", { class: "card-title", text: report.title }),
+      el("div", { class: "muted", style: "font-size:11px;margin-top:3px",
+                  text: `Generated ${report.full_date}` }),
+    ]));
+
+    host.appendChild(el("div", { class: "detail-block" }, [
+      el("div", { class: "detail-box" }, [
+        el("div", { class: "kv-row" }, [
+          el("span", { class: "k", text: "Scan target" }),
+          el("span", { class: "v", text: report.target_url }),
+        ]),
+        el("div", { class: "kv-row" }, [
+          el("span", { class: "k", text: "Format" }),
+          el("span", { class: "v", text: `PDF - ${report.page_count || "?"} pages` }),
+        ]),
+      ]),
+    ]));
+
+    host.appendChild(el("div", { class: "detail-block" }, [
+      el("div", { class: "detail-label", text: "Executive summary" }),
+      el("div", { class: "summary-text", text: report.summary || "No summary recorded." }),
+    ]));
+
+    const actions = el("div", { class: "row-gap mt-16" });
+
+    if (report.has_file) {
+      actions.appendChild(el("a", {
+        class: "btn btn-primary", href: `/api/reports/${report.id}/download`,
+        text: "Download PDF",
+      }));
+      actions.appendChild(el("button", {
+        class: "btn", text: "Open in PDF viewer",
+        onClick: async () => {
+          try {
+            await api(`/api/reports/${report.id}/reveal`, { method: "POST" });
+          } catch (err) { SS.toast(err.message, "error"); }
+        },
+      }));
+    }
+
+    if (report.scan_id) {
+      actions.appendChild(el("a", {
+        class: "btn", href: `/scan/${report.scan_id}`, text: "View findings",
+      }));
+    }
+
+    actions.appendChild(el("button", {
+      class: "btn btn-danger btn-sm", text: "Delete",
+      onClick: async () => {
+        try {
+          await api(`/api/reports/${report.id}`, { method: "DELETE" });
+          selectedId = null;
+          SS.toast("Report deleted.", "success");
+          load();
+        } catch (err) { SS.toast(err.message, "error"); }
+      },
+    }));
+
+    host.appendChild(actions);
+  }
+
+  async function load() {
+    try {
+      const data = await api("/api/reports?search=" + encodeURIComponent(search));
+      reports = data.reports;
+
+      $("#r-total").textContent = formatNumber(data.total);
+      $("#r-month").textContent = data.this_month ? `+${data.this_month} this month` : "None this month";
+      $("#r-scans").textContent = formatNumber(data.scans_completed);
+      $("#r-rate").textContent = "completed successfully";
+      $("#r-critical").textContent = formatNumber(data.critical_total);
+      $("#r-score").innerHTML = `${data.score || 0}<span class="suffix"> / {{ max_score }}</span>`;
+
+      if (selectedId === null && reports.length) selectedId = reports[0].id;
+      renderList();
+      renderDetail();
+    } catch (err) {
+      SS.toast(err.message, "error");
+    }
+  }
+
+  const searchBox = $("#global-search");
+  searchBox.placeholder = "Search reports...";
+  let debounce;
+  searchBox.addEventListener("input", (event) => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => { search = event.target.value.trim(); selectedId = null; load(); }, 260);
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

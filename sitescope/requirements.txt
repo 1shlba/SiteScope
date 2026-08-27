@@ -1,0 +1,15 @@
+# SiteScope runtime dependencies.
+#
+# The constraint here is not "pure Python" - reportlab pulls in Pillow, and
+# cryptography is a compiled extension. It is that every one of these ships
+# prebuilt Windows wheels and none of them is a GUI toolkit. That is what
+# makes the PyInstaller build reproducible on a clean Windows runner and keeps
+# the executable small, with no runtime to ship alongside it.
+
+Flask>=3.0,<4.0          # local web service behind the desktop window
+Werkzeug>=3.0            # WSGI server used directly by the launcher (make_server)
+requests>=2.31           # HTTP client used by the scanner
+cryptography>=42.0       # reads expiry dates from certificates that fail verification
+reportlab>=4.0           # PDF report generation
+pypdf>=3.17              # reads back page counts from generated reports
+certifi>=2024.2.2        # up-to-date root certificates for TLS verification

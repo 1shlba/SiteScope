@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stat-grid">
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Total Scans Run</span>
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="s-total">--</div>
+    <div class="stat-sub good" id="s-total-sub">&nbsp;</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Active Vulnerabilities</span>
+      <svg class="stat-icon danger" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <path d="M10.3 4.3L2.5 18a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 4.3a2 2 0 00-3.4 0z"/>
+        <path d="M12 9v4"/><path d="M12 17h.01"/>
+      </svg>
+    </div>
+    <div class="stat-value" id="s-vulns">--</div>
+    <div class="sev-chips" id="s-chips">
+      <span class="sev-c">0 C</span><span class="sev-h">0 H</span>
+      <span class="sev-m">0 M</span><span class="sev-l">0 L</span>
+    </div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Last Scan Activity</span>
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+      </svg>
+    </div>
+    <div class="stat-value small" id="s-last">No scans yet</div>
+    <div class="stat-sub" id="s-last-sub">Run your first scan to begin</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat-head">
+      <span class="stat-label">Security Score</span>
+      <svg class="stat-icon good" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="12" cy="8" r="5"/><path d="M8.2 12.5L7 22l5-3 5 3-1.2-9.5"/>
+      </svg>
+    </div>
+    <div class="stat-value good" id="s-score">--<span class="suffix"> / {{ max_score }}</span></div>
+    <div class="stat-sub" id="s-grade">Awaiting first scan</div>
+  </div>
+
+</div>
+
+<div class="dash-grid">
+  <div class="dash-col">
+
+    <section class="card">
+      <div class="card-head"><div class="card-title">Active Severity Breakdown</div></div>
+      <div id="sev-bars"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head mb-0"><div class="card-title">Security Score Trend</div></div>
+      <div class="chart-legend" style="margin-top:10px">
+        <span class="key"><span class="swatch" style="background:#3b82f6"></span>Your score</span>
+        <span class="key"><span class="swatch" style="background:#ef4444"></span>Good practice target</span>
+      </div>
+      <div class="chart-wrap" id="chart-benchmark"></div>
+    </section>
+
+  </div>
+
+  <div class="dash-col">
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title">Vulnerability Monthly Overview</div>
+        <span class="card-link" onclick="location.href='/history'">View all</span>
+      </div>
+      <div class="chart-wrap" id="chart-trend"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title">What to fix first</div>
+        <span class="card-link" onclick="location.href='/history'">All findings</span>
+      </div>
+      <div id="priority-list"></div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, el, clear, api, formatNumber, SEVERITY } = SS;
+  const MAX_SCORE = {{ max_score }};
+
+  function renderSeverityBars(counts) {
+    const host = clear($("#sev-bars"));
+    const peak = Math.max(1, ...Object.values(counts));
+
+    for (const key of ["critical", "high", "medium", "low"]) {
+      const value = counts[key] || 0;
+      const meta = SEVERITY[key];
+
+      host.appendChild(el("div", { class: "sev-row" }, [
+        el("div", { class: "sev-row-head" }, [
+          el("span", { class: "sev-name", text: `${meta.label} (${meta.range})` }),
+          el("span", { class: "sev-count", style: `color:${meta.colour}`, text: String(value) }),
+        ]),
+        el("div", { class: "bar-track" }, [
+          el("div", {
+            class: "bar-fill",
+            style: `width:${value === 0 ? 0 : Math.max(4, (value / peak) * 100)}%;background:${meta.colour}`,
+          }),
+        ]),
+      ]));
+    }
+  }
+
+  function renderTrend(trend) {
+    const host = $("#chart-trend");
+    if (!trend.length) {
+      host.innerHTML = '<div class="empty" style="padding:56px 10px"><p>No scan history yet. The trend appears once you have scanned on more than one occasion.</p></div>';
+      return;
+    }
+    Charts.lineChart(host, {
+      labels: trend.map((point) => point.label),
+      series: [{ values: trend.map((point) => point.value), colour: "#ffffff", endDot: true, width: 2 }],
+      height: 250,
+      yTicks: 5,
+    });
+  }
+
+  /* Your average security score per month, plotted against the score a site
+     should be aiming for. The target is a stated goal, not measured industry
+     data - inventing a benchmark figure in a security tool would be dishonest. */
+  function renderBenchmark(trend, targetScore) {
+    const host = $("#chart-benchmark");
+    if (trend.length < 2) {
+      host.innerHTML = '<div class="empty" style="padding:34px 10px"><p>The trend appears once you have scanned in more than one month.</p></div>';
+      return;
+    }
+
+    Charts.lineChart(host, {
+      labels: trend.map((point) => point.label),
+      series: [
+        { values: trend.map((point) => point.score || 0), colour: "#3b82f6", smooth: true, width: 2.4 },
+        { values: trend.map(() => targetScore), colour: "#ef4444", width: 1.8 },
+      ],
+      height: 190,
+      yTicks: 4,
+    });
+  }
+
+  function renderPriorities(priorities, hasData) {
+    const host = clear($("#priority-list"));
+
+    if (!priorities.length) {
+      host.appendChild(el("div", { class: "empty", style: "padding:26px 10px" }, [
+        el("p", {
+          text: hasData
+            ? "Nothing outstanding. Every issue from your most recent scans has been marked as fixed."
+            : "Run your first scan and the issues that need your attention will be listed here, most urgent first.",
+        }),
+      ]));
+      if (!hasData) {
+        host.querySelector(".empty").appendChild(el("button", {
+          class: "btn btn-primary", text: "Run a scan",
+          onClick: () => (location.href = "/new-scan"),
+        }));
+      }
+      return;
+    }
+
+    for (const item of priorities) {
+      const meta = SEVERITY[item.severity];
+      const row = el("div", { class: "report-item" }, [
+        el("span", {
+          class: "tag",
+          style: `background:${meta.colour}22;color:${meta.colour};margin-right:0`,
+          text: meta.label,
+        }),
+        el("div", { class: "ri-main" }, [
+          el("div", { class: "ri-title", text: item.title }),
+          el("div", { class: "ri-meta",
+                      text: `${item.target} - ${item.difficulty}` +
+                            (item.needs_professional ? " - professional help recommended" : "") }),
+        ]),
+        el("div", { class: "ri-date", text: `CVSS ${item.cvss}` }),
+      ]);
+      row.addEventListener("click", () => (location.href = `/scan/${item.scan_id}`));
+      host.appendChild(row);
+    }
+  }
+
+  async function load() {
+    try {
+      const data = await api("/api/dashboard");
+
+      $("#s-total").textContent = formatNumber(data.total_scans);
+      $("#s-total-sub").textContent = data.week_scans
+        ? `+${data.week_scans} completed this week`
+        : "No scans in the past week";
+
+      $("#s-vulns").innerHTML = `${formatNumber(data.active_vulnerabilities)}` +
+        `<span class="suffix"> unresolved</span>`;
+
+      const c = data.counts;
+      $("#s-chips").innerHTML =
+        `<span class="sev-c">${c.critical} C</span>` +
+        `<span class="sev-h">${c.high} H</span>` +
+        `<span class="sev-m">${c.medium} M</span>` +
+        `<span class="sev-l">${c.low} L</span>`;
+
+      if (data.latest) {
+        $("#s-last").textContent = data.latest.display_name;
+        $("#s-last-sub").textContent =
+          `${data.latest.when} - ${SS.pluralise(data.latest.findings, "finding")}`;
+        $("#s-score").innerHTML =
+          `${data.score}<span class="suffix"> / ${data.max_score}</span>`;
+        $("#s-grade").textContent = `Grade ${data.grade}`;
+      } else {
+        // Nothing has been scored yet - a green dash would imply a healthy result.
+        $("#s-score").classList.remove("good");
+        $("#s-score").innerHTML = `<span class="suffix">Not scored yet</span>`;
+      }
+
+      renderSeverityBars(c);
+      renderTrend(data.trend);
+      renderBenchmark(data.trend, data.target_score);
+      renderPriorities(data.priorities || [], data.has_data);
+    } catch (err) {
+      SS.toast(err.message, "error");
+    }
+  }
+
+  load();
+
+  $("#global-search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.value.trim()) {
+      location.href = "/history?search=" + encodeURIComponent(event.target.value.trim());
+    }
+  });
+})();
+</script>
+{% endblock %}

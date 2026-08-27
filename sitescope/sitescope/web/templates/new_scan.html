@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="scan-grid">
+
+  <section class="card">
+    <div class="card-head"><div class="card-title">Scan Parameters</div></div>
+
+    <div class="field">
+      <label class="field-label" for="target-url">Target URL</label>
+      <input class="input" id="target-url" type="text" spellcheck="false"
+             placeholder="https://yourbusiness.com.au" autocomplete="off">
+      <div class="field-hint">Enter the address of the website you want assessed.</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">Scan Type Preset</label>
+      <div class="preset-grid">
+        <div class="preset selected" data-type="full">
+          <div class="preset-name">Full Scan</div>
+          <div class="preset-desc">All checks plus a deeper crawl of your pages</div>
+        </div>
+        <div class="preset" data-type="quick">
+          <div class="preset-name">Quick Scan</div>
+          <div class="preset-desc">Top vulnerabilities only, finishes faster</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice notice-warn">
+      <strong>Only scan websites you are allowed to test.</strong>
+      SiteScope sends real requests to the address you enter. Scanning a site you
+      do not own or have written permission to test may be unlawful under the
+      Commonwealth <em>Criminal Code Act 1995</em>.
+    </div>
+
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="authorised">
+        <span>I own this website, or I have written permission from its owner to run a security scan against it.</span>
+      </label>
+    </div>
+
+    <button class="btn btn-primary btn-lg" id="launch-btn" disabled>Launch VulnGuard Scan</button>
+    <button class="btn btn-danger btn-lg" id="stop-btn" style="display:none;margin-top:8px">Stop Scan</button>
+
+    <div class="engine-card">
+      <div class="engine-head">
+        <span class="engine-title">Engine Status: <span id="engine-state">Idle</span></span>
+        <span class="engine-pct" id="engine-pct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="engine-rows">
+        <div class="engine-row"><span class="k">Current Phase</span><span class="v" id="r-phase">-</span></div>
+        <div class="engine-row"><span class="k">Requests Sent</span><span class="v" id="r-requests">0</span></div>
+        <div class="engine-row"><span class="k">Detections</span><span class="v detect" id="r-detections">0</span></div>
+        <div class="engine-row"><span class="k">Time Elapsed</span><span class="v mono" id="r-elapsed">00:00:00</span></div>
+      </div>
+    </div>
+
+    <div id="result-panel" style="display:none;margin-top:14px"></div>
+  </section>
+
+  <section class="log-card">
+    <div class="log-head">
+      <span class="log-title">System Log Feed</span>
+      <span class="dot idle" id="log-dot"></span>
+    </div>
+    <div class="log-body" id="log-body">
+      <div class="log-empty">Waiting for a scan to start. Activity will stream here in real time.</div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const { $, $$, el, api, toast } = SS;
+
+  let scanType = "full";
+  let stopPolling = null;
+  let renderedLogCount = 0;
+
+  /* -------------------------------------------------- Preset selection */
+
+  $$(".preset").forEach((node) => {
+    node.addEventListener("click", () => {
+      $$(".preset").forEach((other) => other.classList.remove("selected"));
+      node.classList.add("selected");
+      scanType = node.dataset.type;
+    });
+  });
+
+  /* -------------------------------- Authorisation gates the start button */
+
+  const authorised = $("#authorised");
+  const urlInput = $("#target-url");
+  const launchBtn = $("#launch-btn");
+
+  function refreshLaunchState() {
+    launchBtn.disabled = !(authorised.checked && urlInput.value.trim());
+  }
+
+  authorised.addEventListener("change", refreshLaunchState);
+  urlInput.addEventListener("input", refreshLaunchState);
+  urlInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !launchBtn.disabled) launchBtn.click();
+  });
+
+  /* ------------------------------------------------------- Log rendering */
+
+  function appendLogs(logs) {
+    const body = $("#log-body");
+    if (renderedLogCount === 0) body.innerHTML = "";
+
+    for (let i = renderedLogCount; i < logs.length; i++) {
+      const entry = logs[i];
+      const line = el("div", { class: `log-line ${entry.level}` });
+      line.appendChild(el("span", { class: "ts", text: `[${entry.time}] ` }));
+      line.appendChild(document.createTextNode(`[${entry.level}] ${entry.message}`));
+      body.appendChild(line);
+    }
+
+    if (logs.length !== renderedLogCount) {
+      renderedLogCount = logs.length;
+      body.scrollTop = body.scrollHeight;
+    }
+  }
+
+  /* ------------------------------------------------------ Status display */
+
+  function applyStatus(status) {
+    $("#engine-pct").textContent = status.progress + "%";
+    $("#progress-fill").style.width = status.progress + "%";
+    $("#r-phase").textContent = status.phase || "-";
+    $("#r-requests").textContent = SS.formatNumber(status.requests_sent);
+    $("#r-detections").textContent = status.detections;
+    $("#r-elapsed").textContent = status.elapsed_display;
+    $("#engine-state").textContent = status.active ? "Active" : (status.phase || "Idle");
+    $("#log-dot").className = status.active ? "dot pulsing" : "dot idle";
+
+    appendLogs(status.logs || []);
+
+    launchBtn.style.display = status.active ? "none" : "";
+    $("#stop-btn").style.display = status.active ? "" : "none";
+    urlInput.disabled = status.active;
+    authorised.disabled = status.active;
+
+    if (!status.active && status.result) showResult(status);
+  }
+
+  function showResult(status) {
+    const panel = $("#result-panel");
+    const result = status.result;
+    panel.style.display = "";
+
+    if (result.status === "failed") {
+      panel.innerHTML =
+        `<div class="notice notice-danger"><strong>Scan failed.</strong> ` +
+        `${SS.escapeHtml(result.error || "The website could not be assessed.")}</div>`;
+      return;
+    }
+    if (result.status === "cancelled") {
+      panel.innerHTML = `<div class="notice notice-warn"><strong>Scan stopped.</strong> Partial results were saved.</div>`;
+      return;
+    }
+
+    const c = result.counts;
+    const kind = c.critical ? "danger" : c.high ? "warn" : "success";
+
+    panel.innerHTML =
+      `<div class="notice notice-${kind}">` +
+      `<strong>Scan complete - score ${result.score}/{{ max_score }} (grade ${result.grade}).</strong><br>` +
+      `${result.total_findings} issue(s) across ${result.pages_scanned} page(s): ` +
+      `${c.critical} critical, ${c.high} high, ${c.medium} medium, ${c.low} low.` +
+      `</div>` +
+      `<a class="btn btn-primary" style="width:100%" href="/scan/${status.scan_id}">View full results and fixes</a>`;
+  }
+
+  /* --------------------------------------------------------- Poll loop */
+
+  function startPolling() {
+    if (stopPolling) stopPolling();
+    stopPolling = SS.poll(async () => {
+      const status = await api("/api/scan/status");
+      applyStatus(status);
+      if (!status.active) { stopPolling = null; return false; }
+    }, 900);
+  }
+
+  /* ------------------------------------------------------------ Actions */
+
+  launchBtn.addEventListener("click", async () => {
+    launchBtn.disabled = true;
+    $("#result-panel").style.display = "none";
+    renderedLogCount = 0;
+    $("#log-body").innerHTML = "";
+
+    try {
+      const status = await api("/api/scan/start", {
+        method: "POST",
+        body: { url: urlInput.value.trim(), scan_type: scanType, authorised: authorised.checked },
+      });
+      applyStatus(status);
+      startPolling();
+    } catch (err) {
+      toast(err.message, "error");
+      refreshLaunchState();
+    }
+  });
+
+  $("#stop-btn").addEventListener("click", async () => {
+    try {
+      await api("/api/scan/cancel", { method: "POST" });
+      toast("Stopping the scan...");
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  /* Reattach to a scan already running when this page was opened. */
+  (async () => {
+    try {
+      const status = await api("/api/scan/status");
+      if (status.active || (status.logs && status.logs.length)) {
+        applyStatus(status);
+        if (status.active) startPolling();
+      }
+    } catch (err) { /* first load, nothing running */ }
+  })();
+
+  /* "Re-scan" on a results page hands the address across through session storage. */
+  const prefill = sessionStorage.getItem("sitescope:prefill");
+  if (prefill) {
+    urlInput.value = prefill;
+    sessionStorage.removeItem("sitescope:prefill");
+    refreshLaunchState();
+  }
+
+  $("#global-search").placeholder = "Search targets...";
+})();
+</script>
+{% endblock %}
