@@ -3,15 +3,15 @@
 
 Sitescope is a packaged python application that can be easily installed on windows devices, that scans websites and provides vulnerability evaluation and analysis. The design is tailored towards small business and less technical users who cannot afford to employ a cybersecurity department.
 
-How it works
+How it works:
 Enter your website address and confirm you own it.
 SiteScope visits your pages the way a browser does, and examines what comes back: certificates, security settings, cookies, forms, and files that should not be public.
 You get a score out of 950 and a list of issues, most urgent first. Each one explains what it means, why it matters to your business, and how to fix it.
-Export the lot as a PDF report.
+There is also the option to generate a detailed PDF report with further recommended remediation advice.
 
-It only looks. SiteScope never attacks your site, submits data or changes anything, and nothing leaves your computer.
+SiteScope never attacks your site, submits data or changes anything, and nothing leaves your computer.
 
-Build it on Windows
+How to run it on Windows:
 Install Python 3.10–3.14 from python.org/downloads/windows, choose Windows installer (64-bit), and tick "Add python.exe to PATH" on the first screen.
 Double-click build\build.bat.
 
